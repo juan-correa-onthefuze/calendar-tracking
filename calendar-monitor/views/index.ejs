@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Monitor - On The Fuze</title>
+  <style>
+    /* ... (Your original styles are here) ... */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    .header {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    
+    .header h1 { font-size: 32px; color: #1a202c; margin-bottom: 8px; }
+    .header p { color: #718096; font-size: 16px; }
+    
+    .status-badge {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+    
+    .status-badge.authenticated { background: #d4edda; color: #155724; }
+    .status-badge.not-authenticated { background: #f8d7da; color: #721c24; }
+    
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    
+    .stat-card h3 {
+      font-size: 14px;
+      color: #718096;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .stat-card .value {
+      font-size: 48px;
+      font-weight: bold;
+      color: #667eea;
+    }
+    
+    .controls {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    }
+    
+    .btn {
+      padding: 14px 28px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-right: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    .btn-secondary {
+      background: #48bb78;
+      color: white;
+    }
+    
+    .btn-secondary:hover {
+      background: #38a169;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
+    }
+    
+    .btn:disabled {
+      background: #cbd5e0;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .results {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      display: none;
+    }
+    
+    .results.show { display: block; }
+    
+    .results h2 { font-size: 24px; color: #1a202c; margin-bottom: 20px; }
+    
+    .result-item {
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      border-left: 4px solid #e2e8f0;
+    }
+    
+    .result-item.warning { background: #fef5e7; border-left-color: #f59e0b; }
+    .result-item.success { background: #f0fdf4; border-left-color: #10b981; }
+    .result-item.neutral { background: #e2e8f0; border-left-color: #718096; }
+    
+    .result-item h4 { font-size: 16px; color: #1a202c; margin-bottom: 8px; }
+    .result-item p { font-size: 14px; color: #718096; margin: 4px 0; }
+
+    /* === USAGE BAR === */
+    .usage-bar-container {
+      margin-top: 8px;
+      background: #e2e8f0;
+      border-radius: 8px;
+      height: 12px;
+      overflow: hidden;
+    }
+
+    .usage-bar {
+      height: 100%;
+      transition: width 0.4s ease;
+      border-radius: 8px;
+    }
+
+    .usage-green { background: #48bb78; }
+    .usage-orange { background: #f6ad55; }
+    .usage-red { background: #f56565; }
+
+    .notification-icon {
+      color: #f59e0b;
+      font-size: 20px;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+    
+    .error-icon {
+        color: #f56565;
+    }
+
+    .loading { text-align: center; padding: 40px; }
+    .spinner {
+      border: 4px solid #f3f4f6;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .team-info {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #4a5568;
+    }
+
+    .team-info strong { color: #1a202c; }
+    
+    /* Filter styles */
+    .filter-group {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+    
+    .filter-group label {
+        font-weight: 600;
+        color: #4a5568;
+    }
+    
+    .filter-group select {
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e0;
+    }
+    
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📅 Calendar Monitor</h1>
+      <p>On The Fuze - Team Calendar Tracking</p>
+      <% if (authenticated) { %>
+        <span class="status-badge authenticated">✓ Authenticated</span>
+      <% } else { %>
+        <span class="status-badge not-authenticated">⚠ Not Authenticated</span>
+      <% } %>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-card">
+        <h3>Team Members</h3>
+        <div class="value"><%= teamCount %></div>
+      </div>
+      <div class="stat-card">
+        <h3>Today Threshold</h3>
+        <div class="value"><%= threshold %>%</div>
+      </div>
+      <div class="stat-card">
+        <h3>Avg Utilization</h3>
+        <div class="value" id="avgUtil">--</div>
+      </div>
+      <div class="stat-card">
+        <h3>Needs Attention</h3>
+        <div class="value" id="needsAttn">--</div>
+      </div>
+    </div>
+    
+    <div class="controls">
+    <div class="team-info">
+        <strong>Monitoring:</strong> <%= teamCount %> members<br>
+        <strong>Working Hours:</strong> 9 AM - 6 PM (excluding lunch 12-2 PM)<br>
+        <strong>Focus:</strong> 30-minute blocks (excluding meetings)<br>
+        <strong>Today's Threshold:</strong> Max <%= threshold %>% Empty | <strong>Next Day's Threshold:</strong> Max 70% Empty
+    </div>
+    
+    <% if (!authenticated) { %>
+        <a href="/auth" class="btn btn-primary">🔐 Authenticate with Google</a>
+        <p style="margin-top: 12px; color: #718096;">Please authenticate to check calendars</p>
+    <% } else { %>
+        
+        <div class="filter-group" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
+            <button onclick="checkCalendars()" class="btn btn-secondary" id="checkBtn">
+                🔍 Check All Calendars
+            </button>
+            <button onclick="location.reload()" class="btn btn-primary">
+                🔄 Refresh Page
+            </button>
+        </div>
+
+        <div class="filter-group">
+            <label for="roleFilter">Filter by Role:</label>
+            <select id="roleFilter" onchange="filterResults()">
+                <option value="All">All Roles</option>
+                <% roles.forEach(role => { %>
+                    <option value="<%= role %>"><%= role %></option>
+                <% }); %>
+            </select>
+            
+            <label for="statusFilter">Filter by Status:</label>
+            <select id="statusFilter" onchange="filterResults()">
+                <option value="All">All Statuses</option>
+                <option value="Attention">Needs Attention</option>
+                <option value="OK">OK</option>
+                <option value="Error">Error</option>
+            </select>
+            
+            <button onclick="resetFilters()" class="btn btn-primary" style="padding: 10px 20px;">
+                Reset Filters
+            </button>
+        </div>
+        
+        <div class="filter-group" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+            <label for="reportDays">Generate **CSV Report** (Working Days):</label>
+            <input type="number" id="reportDays" value="10" min="1" style="padding: 8px; border-radius: 6px; border: 1px solid #cbd5e0; width: 80px;">
+            
+            <button onclick="generateReport()" class="btn btn-primary" id="reportBtn" style="background: #e53e3e;">
+                ⬇️ Download Report
+            </button>
+        </div>
+
+    <% } %>
+</div>
+    
+    <div class="results" id="results">
+      <h2>📊 Results (<span id="displayCount">0</span> Members Displayed)</h2>
+      <div id="resultsContent"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentResults = null;
+    const todayThreshold = <%= threshold %>;
+    const nextDayThreshold = 70; // Hardcoded 70% for next day empty
+
+    async function checkCalendars() {
+      const btn = document.getElementById('checkBtn');
+      const results = document.getElementById('results');
+      const resultsContent = document.getElementById('resultsContent');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ Checking...';
+      results.classList.add('show');
+      resultsContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>Checking all calendars...</p></div>';
+      
+      // Reset filters before fetching new data
+      resetFilters(true); 
+      
+      try {
+        const response = await fetch('/api/check-calendars');
+        const data = await response.json();
+        
+        if (response.ok) {
+          currentResults = data;
+          displayResults(data.checked, data);
+        } else {
+          resultsContent.innerHTML = `<div class="result-item warning"><h4>❌ Error</h4><p>${data.error}</p></div>`;
+        }
+      } catch (error) {
+        resultsContent.innerHTML = `<div class="result-item warning"><h4>❌ Error</h4><p>${error.message}</p></div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Check All Calendars';
+      }
+    }
+    
+    function resetFilters(silent = false) {
+        document.getElementById('roleFilter').value = 'All';
+        document.getElementById('statusFilter').value = 'All';
+        if (!silent) {
+            filterResults();
+        }
+    }
+    
+    function getMemberStatus(member) {
+        if (member.error) return 'Error';
+        
+        const isTodayBelow = member.emptyPercentage > todayThreshold;
+        const isNextDayBelow = member.nextDayEmptyPercentage > nextDayThreshold;
+        
+        return (isTodayBelow || isNextDayBelow) ? 'Attention' : 'OK';
+    }
+    
+    function filterResults() {
+        if (!currentResults) return;
+        
+        const roleFilter = document.getElementById('roleFilter').value;
+        const statusFilter = document.getElementById('statusFilter').value;
+        
+        const filtered = currentResults.checked.filter(member => {
+            const roleMatch = roleFilter === 'All' || member.role === roleFilter;
+            const status = getMemberStatus(member);
+            const statusMatch = statusFilter === 'All' || status === statusFilter;
+            
+            return roleMatch && statusMatch;
+        });
+        
+        displayResults(filtered, currentResults);
+    }
+    
+    function displayResults(members, summaryData) {
+      document.getElementById('avgUtil').textContent = summaryData.averageUtilization + '%';
+      document.getElementById('needsAttn').textContent = summaryData.needsAttention.length;
+      document.getElementById('displayCount').textContent = members.length;
+      
+      let html = '';
+      
+      // Summary Block
+      html += `
+        <div class="result-item neutral">
+          <h4>📈 Summary</h4>
+          <p><strong>Today's Date:</strong> ${summaryData.todayDate}</p>
+          <p><strong>Next Working Day:</strong> ${summaryData.nextDayDate}</p>
+          <p>Checked: ${summaryData.checked.length} / ${summaryData.totalMembers}</p>
+          <p>Average Utilization: ${summaryData.averageUtilization}%</p>
+          <p>Members Needing Attention: ${summaryData.needsAttention.length}</p>
+          <p>Timestamp: ${new Date(summaryData.timestamp).toLocaleString()}</p>
+        </div>
+      `;
+      
+      members.forEach(member => {
+          
+          if (member.error) {
+              html += `
+                <div class="result-item warning">
+                  <h4>
+                    ${member.name} <span class="notification-icon error-icon">❌</span>
+                  </h4>
+                  <p><strong>Role:</strong> ${member.role} | <strong>Email:</strong> ${member.email}</p>
+                  <p style="color:#c05621;"><strong>Error:</strong> Could not access calendar. ${member.error}</p>
+                </div>
+              `;
+              return;
+          }
+
+          const todayEmpty = member.emptyPercentage;
+          const nextDayEmpty = member.nextDayEmptyPercentage;
+
+          const isTodayBelow = todayEmpty > todayThreshold;
+          const isNextDayBelow = nextDayEmpty > nextDayThreshold;
+          const needsAttention = isTodayBelow || isNextDayBelow;
+
+          let barColor = "usage-green";
+          if (todayEmpty > todayThreshold) barColor = "usage-orange";
+          if (todayEmpty > 50) barColor = "usage-red"; 
+
+          let itemClass = needsAttention ? 'warning' : 'success';
+
+          html += `
+            <div class="result-item ${itemClass}">
+              <h4>
+                ${member.name}
+                ${needsAttention ? '<span class="notification-icon">⚠️</span>' : ""}
+              </h4>
+
+              <p><strong>Role:</strong> ${member.role} | <strong>Email:</strong> ${member.email}</p>
+
+              <p><strong>Utilization Today (${summaryData.todayDate}):</strong> ${member.utilization}%</p>
+
+              <div class="usage-bar-container">
+                <div class="usage-bar ${barColor}" style="width:${member.utilization}%;"></div>
+              </div>
+              
+              <p>
+                <strong>Empty Today:</strong> ${todayEmpty}% (Max ${todayThreshold}%) 
+                <br>
+                <strong>Empty Next Day (${summaryData.nextDayDate}):</strong> ${nextDayEmpty}% (Max ${nextDayThreshold}%)
+              </p>
+              
+              <p><strong>Events Today:</strong> ${member.eventCount}</p>
+
+              ${
+                needsAttention
+                  ? `<p style="color:#c05621;"><strong>⚠ Needs Attention:</strong> ${isTodayBelow ? `Today (${todayEmpty}%)` : ''}${isTodayBelow && isNextDayBelow ? ' and ' : ''}${isNextDayBelow ? `Next Day (${nextDayEmpty}%)` : ''} empty thresholds exceeded.</p>`
+                  : `<p style="color:#38a169;"><strong>✓ OK:</strong> Calendar meets all criteria.</p>`
+              }
+            </div>
+          `;
+        });
+      
+      if (summaryData.errors > 0) {
+        html += `<div class="result-item warning"><h4>⚠️ ${summaryData.errors} calendars could not be accessed</h4><p>Check calendar sharing settings or network connection.</p></div>`;
+      }
+      
+      if (members.length === 0) {
+         html = '<div class="result-item neutral"><h4>No members found for the current filters.</h4><p>Try adjusting your role or status filters.</p></div>';
+      }
+
+      
+      document.getElementById('resultsContent').innerHTML = html;
+    }
+
+    async function generateReport() {
+        const days = document.getElementById('reportDays').value;
+        const reportBtn = document.getElementById('reportBtn');
+
+        if (!days || parseInt(days) < 1) {
+            alert('Please enter a valid number of days (1 or more).');
+            return;
+        }
+
+        reportBtn.disabled = true;
+        const originalText = reportBtn.textContent;
+        reportBtn.textContent = '⏳ Generating...';
+        
+        try {
+            // Use the browser's native fetch to initiate a download
+            const response = await fetch(`/api/generate-report?days=${days}`);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                alert(`Error: Could not generate report. ${errorData.error}`);
+                return;
+            }
+
+            // Create a blob from the response and trigger download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `calendar_compliance_report_${days}_days.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            
+        } catch (error) {
+            alert(`Network error during report generation: ${error.message}`);
+        } finally {
+            reportBtn.disabled = false;
+            reportBtn.textContent = originalText;
+        }
+    }
+    
+  </script>
+</body>
+</html>
