@@ -9,17 +9,17 @@ const TEAM_MEMBERS = require('./teamData');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// OAuth2 client (Same as before)
+// OAuth2 client
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// Store tokens (in production, use a database) (Same as before)
+// Store tokens (in production, use a database)
 let tokens = null;
 
-// Middleware (Same as before)
+// Middleware
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
 app.use(express.json());
@@ -30,7 +30,7 @@ function formatDate(date) {
     return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
-// Routes (Existing routes remain the same)
+// Routes
 app.get('/', (req, res) => {
   res.render('index', { 
     authenticated: !!tokens,
@@ -40,7 +40,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// OAuth flow (Same as before)
+// OAuth flow
 app.get('/auth', (req, res) => {
   const scopes = [
     'https://www.googleapis.com/auth/calendar.readonly',
@@ -70,7 +70,7 @@ app.get('/oauth2callback', async (req, res) => {
   }
 });
 
-// Check calendars endpoint (Same as before)
+// Check calendars endpoint - NOW ACCEPTS A DATE PARAMETER
 app.get('/api/check-calendars', async (req, res) => {
   if (!tokens) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -80,7 +80,11 @@ app.get('/api/check-calendars', async (req, res) => {
     oauth2Client.setCredentials(tokens);
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-    const results = await checkAllCalendars(calendar);
+    // Get the date from query parameter, or default to today
+    const dateParam = req.query.date;
+    const targetDate = dateParam ? new Date(dateParam) : new Date();
+
+    const results = await checkAllCalendars(calendar, targetDate);
     res.json(results);
   } catch (error) {
     console.error('Error checking calendars:', error);
@@ -88,9 +92,7 @@ app.get('/api/check-calendars', async (req, res) => {
   }
 });
 
-// ====================================================================
-// NEW REPORT ENDPOINT
-// ====================================================================
+// Generate report endpoint
 app.get('/api/generate-report', async (req, res) => {
     if (!tokens) {
         return res.status(401).json({ error: 'Not authenticated' });
@@ -113,37 +115,18 @@ app.get('/api/generate-report', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-// ====================================================================
 
-// Helper function to get the start and end of the next *working* day (Same as before)
-function getNextWorkingDay(today) {
-  const nextDay = new Date(today);
-  
-  nextDay.setDate(today.getDate() + 1);
-
-  while (nextDay.getDay() === 0 || nextDay.getDay() === 6) {
-    nextDay.setDate(nextDay.getDate() + 1);
-  }
-  
-  const nextDayDate = nextDay.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-
-  const startOfNextDay = new Date(nextDay.setHours(0, 0, 0, 0)).toISOString();
-  const endOfNextDay = new Date(nextDay.setHours(23, 59, 59, 999)).toISOString();
-
-  return { startOfNextDay, endOfNextDay, nextDayDate };
-}
-
-// Check all calendars (Monitoring endpoint logic - Same as before)
-async function checkAllCalendars(calendar) {
+// Check all calendars for a specific date
+async function checkAllCalendars(calendar, targetDate) {
   const threshold = parseInt(process.env.THRESHOLD) || 30;
-  const today = new Date();
   
-  const { startOfNextDay, endOfNextDay, nextDayDate } = getNextWorkingDay(today);
+  // Set the date range for the target date ONLY
+  const startOfDay = new Date(targetDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(targetDate);
+  endOfDay.setHours(23, 59, 59, 999);
   
-  const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-  const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString();
-  const todayDate = today.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-
+  const dateString = targetDate.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric' });
 
   const results = {
     checked: [],
@@ -152,75 +135,59 @@ async function checkAllCalendars(calendar) {
     errors: 0,
     timestamp: new Date().toISOString(),
     totalMembers: TEAM_MEMBERS.length,
-    todayDate: todayDate,
-    nextDayDate: nextDayDate 
+    targetDate: dateString,
+    targetDateISO: targetDate.toISOString()
   };
   
-  // ... (Rest of checkAllCalendars remains the same) ...
   for (const member of TEAM_MEMBERS) {
     let utilization = 0;
-    let nextDayUtilization = 0;
     let error = null;
-    let eventsToday = [];
-    let eventCountToday = 0;
+    let events = [];
+    let eventCount = 0;
 
     try {
-      // 1. Check Today's Calendar
-      const todayResponse = await calendar.events.list({
+      // Check ONLY the target date's calendar - NO next day checking
+      const response = await calendar.events.list({
         calendarId: member.email,
-        timeMin: startOfDay,
-        timeMax: endOfDay,
+        timeMin: startOfDay.toISOString(),
+        timeMax: endOfDay.toISOString(),
         singleEvents: true,
         orderBy: 'startTime'
       });
       
-      eventsToday = todayResponse.data.items || [];
-      utilization = calculateUtilizationForDay(eventsToday);
-      eventCountToday = eventsToday.length;
+      events = response.data.items || [];
+      utilization = calculateUtilizationForDay(events);
+      eventCount = events.length;
 
-      // 2. Check Next Working Day's Calendar
-      const nextDayResponse = await calendar.events.list({
-        calendarId: member.email,
-        timeMin: startOfNextDay,
-        timeMax: endOfNextDay,
-        singleEvents: true,
-        orderBy: 'startTime'
-      });
-      
-      const eventsNextDay = nextDayResponse.data.items || [];
-      nextDayUtilization = calculateUtilizationForDay(eventsNextDay);
-
-      // console.log(`✓ Checked ${member.name}: ${utilization}% utilized today, ${nextDayUtilization}% utilized next day`);
     } catch (e) {
       error = e.message;
       results.errors++;
-      // console.error(`✗ Error checking ${member.name}:`, error);
     }
     
     const emptyPercentage = 100 - utilization;
-    const nextDayEmptyPercentage = 100 - nextDayUtilization;
-    const isTodayBelowThreshold = emptyPercentage > threshold;
-    const isNextDayBelowThreshold = nextDayEmptyPercentage > 70; // 70% threshold for next day
+    
+    // needsAttention is ONLY based on the selected day's empty percentage
+    // NO next day checking - next day status does NOT affect this
+    const needsAttention = emptyPercentage > threshold;
     
     const memberResult = {
       ...member,
       utilization,
       emptyPercentage,
-      nextDayUtilization,
-      nextDayEmptyPercentage,
-      eventCount: eventCountToday,
-      events: eventsToday.map(e => ({
+      eventCount,
+      events: events.map(e => ({
         summary: e.summary,
         start: e.start.dateTime || e.start.date,
         end: e.end.dateTime || e.end.date
       })),
       error,
-      needsAttention: isTodayBelowThreshold || isNextDayBelowThreshold,
+      needsAttention, // Based ONLY on selected day
     };
     
     results.checked.push(memberResult);
     results.totalUtilization += utilization;
 
+    // Add to needsAttention list ONLY if the SELECTED day exceeds threshold
     if (memberResult.needsAttention) {
       results.needsAttention.push(memberResult);
     }
@@ -230,7 +197,7 @@ async function checkAllCalendars(calendar) {
   return results;
 }
 
-// Calculate utilization (Same as before)
+// Calculate utilization
 function calculateUtilizationForDay(events) {
   const TOTAL_BLOCKS = 14; 
   const BLOCK_DURATION_MS = 30 * 60 * 1000;
@@ -283,15 +250,10 @@ function calculateUtilizationForDay(events) {
   return parseFloat(((finalFilledBlocks / TOTAL_BLOCKS) * 100).toFixed(1));
 }
 
-
-// ====================================================================
-// NEW REPORT GENERATION LOGIC
-// ====================================================================
+// REPORT GENERATION LOGIC
 
 /**
  * Gets a list of the last N working days (excluding today).
- * @param {number} days - Number of working days to include.
- * @returns {Date[]} Array of Date objects for the report days.
  */
 function getReportDates(days) {
     const reportDates = [];
@@ -303,13 +265,12 @@ function getReportDates(days) {
         
         // Skip Sunday (0) and Saturday (6)
         if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-            reportDates.push(new Date(currentDate)); // Push a copy of the date
+            reportDates.push(new Date(currentDate));
         }
         
         currentDate.setDate(currentDate.getDate() - 1);
     }
 
-    // Reverse the array so the report is ordered from oldest to newest
     return reportDates.reverse();
 }
 
@@ -319,7 +280,6 @@ function getReportDates(days) {
 async function checkCalendarForDate(calendar, memberEmail, date) {
     const threshold = parseInt(process.env.THRESHOLD) || 30;
     
-    // Set date range for the day
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
@@ -338,11 +298,9 @@ async function checkCalendarForDate(calendar, memberEmail, date) {
         const utilization = calculateUtilizationForDay(events);
         const emptyPercentage = 100 - utilization;
         
-        // Compliance check: If empty percentage > threshold, it is "Yes" (needs attention/critical)
         return emptyPercentage > threshold ? 'Yes' : 'No';
 
     } catch (error) {
-        // Log the error but return 'Error' for the cell
         console.error(`Error checking calendar for ${memberEmail} on ${formatDate(date)}: ${error.message}`);
         return 'Error'; 
     }
@@ -353,13 +311,11 @@ async function checkCalendarForDate(calendar, memberEmail, date) {
  */
 async function generateReport(calendar, days) {
     const reportDates = getReportDates(days);
-    const complianceData = {}; // { 'YYYY-MM-DD': { 'memberEmail': 'Yes'/'No' } }
+    const complianceData = {};
 
     console.log(`Generating report for ${reportDates.length} working days...`);
 
-    // 1. Gather compliance data for all members for all dates
     for (const member of TEAM_MEMBERS) {
-        // Process dates sequentially for a single member to be polite to the API rate limits
         for (const date of reportDates) {
             const dateKey = formatDate(date);
             
@@ -372,25 +328,18 @@ async function generateReport(calendar, days) {
         }
     }
 
-    // 2. Format the data into CSV
-    
-    // Header Row: 'Date', Member 1 Name, Member 2 Name, ...
-    const memberNames = TEAM_MEMBERS.map(m => m.name.replace(/"/g, '""')); // Escape quotes if needed
+    const memberNames = TEAM_MEMBERS.map(m => m.name.replace(/"/g, '""'));
     let csv = `"Date",${memberNames.join(',')}\n`;
 
-    // Data Rows
-    // Sort dates to ensure consistent order
     const sortedDates = Object.keys(complianceData).sort((a, b) => new Date(a) - new Date(b));
 
     for (const dateKey of sortedDates) {
         const dateData = complianceData[dateKey];
         
-        // Start the row with the date
         let row = `"${dateKey}"`;
 
-        // Append the status for each member in the correct order
         for (const member of TEAM_MEMBERS) {
-            const status = dateData[member.email] || 'Error'; // Default to 'Error' if check failed
+            const status = dateData[member.email] || 'Error';
             row += `,${status}`;
         }
         
@@ -400,16 +349,29 @@ async function generateReport(calendar, days) {
     return csv;
 }
 
-// ====================================================================
-
-// Scheduled daily check (Same as before)
+// Scheduled daily check
 cron.schedule('0 9 * * *', async () => {
-  // ... (Scheduled check logic remains the same) ...
+  if (!tokens) {
+    console.log('⚠️ Skipping scheduled check - not authenticated');
+    return;
+  }
+
+  console.log('🔍 Running scheduled calendar check...');
+  
+  try {
+    oauth2Client.setCredentials(tokens);
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const results = await checkAllCalendars(calendar, new Date());
+    
+    console.log(`✓ Check complete: ${results.needsAttention.length} members need attention`);
+  } catch (error) {
+    console.error('✗ Scheduled check failed:', error.message);
+  }
 }, {
   timezone: "America/Bogota"
 });
 
-// Start server (Same as before)
+// Start server
 app.listen(PORT, () => {
   console.log(`\n🚀 Calendar Monitor running on http://localhost:${PORT}`);
   console.log(`📅 Monitoring ${TEAM_MEMBERS.length} team members`);

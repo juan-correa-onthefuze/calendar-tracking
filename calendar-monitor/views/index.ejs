@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Calendar Monitor - On The Fuze</title>
   <style>
-    /* ... (Your original styles are here) ... */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
     body {
@@ -144,7 +143,6 @@
     .result-item h4 { font-size: 16px; color: #1a202c; margin-bottom: 8px; }
     .result-item p { font-size: 14px; color: #718096; margin: 4px 0; }
 
-    /* === USAGE BAR === */
     .usage-bar-container {
       margin-top: 8px;
       background: #e2e8f0;
@@ -201,7 +199,6 @@
 
     .team-info strong { color: #1a202c; }
     
-    /* Filter styles */
     .filter-group {
         display: flex;
         gap: 12px;
@@ -215,10 +212,49 @@
         color: #4a5568;
     }
     
-    .filter-group select {
+    .filter-group select, .filter-group input[type="date"], .filter-group input[type="number"] {
         padding: 8px 12px;
         border-radius: 6px;
         border: 1px solid #cbd5e0;
+    }
+
+    .date-picker-section {
+        background: #edf2f7;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        border: 2px solid #667eea;
+    }
+
+    .date-picker-section label {
+        display: block;
+        font-weight: 700;
+        color: #2d3748;
+        margin-bottom: 8px;
+        font-size: 16px;
+    }
+
+    .quick-date-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+    }
+
+    .quick-date-buttons button {
+        padding: 8px 16px;
+        font-size: 14px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .quick-date-buttons button:hover {
+        background: #5568d3;
+        transform: translateY(-1px);
     }
     
   </style>
@@ -242,7 +278,7 @@
         <div class="value"><%= teamCount %></div>
       </div>
       <div class="stat-card">
-        <h3>Today Threshold</h3>
+        <h3>Threshold</h3>
         <div class="value"><%= threshold %>%</div>
       </div>
       <div class="stat-card">
@@ -260,7 +296,7 @@
         <strong>Monitoring:</strong> <%= teamCount %> members<br>
         <strong>Working Hours:</strong> 9 AM - 6 PM (excluding lunch 12-2 PM)<br>
         <strong>Focus:</strong> 30-minute blocks (excluding meetings)<br>
-        <strong>Today's Threshold:</strong> Max <%= threshold %>% Empty | <strong>Next Day's Threshold:</strong> Max 70% Empty
+        <strong>Threshold:</strong> Max <%= threshold %>% Empty
     </div>
     
     <% if (!authenticated) { %>
@@ -268,9 +304,21 @@
         <p style="margin-top: 12px; color: #718096;">Please authenticate to check calendars</p>
     <% } else { %>
         
+        <!-- DATE PICKER SECTION -->
+        <div class="date-picker-section">
+            <label for="targetDate">📆 Select Date to Review:</label>
+            <input type="date" id="targetDate" value="" />
+            
+            <div class="quick-date-buttons">
+                <button onclick="setDateToToday()">Today</button>
+                <button onclick="setDateToYesterday()">Yesterday</button>
+                <button onclick="setDateToLastWorkingDay()">Last Working Day</button>
+            </div>
+        </div>
+
         <div class="filter-group" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px;">
             <button onclick="checkCalendars()" class="btn btn-secondary" id="checkBtn">
-                🔍 Check All Calendars
+                🔍 Check Calendars for Selected Date
             </button>
             <button onclick="location.reload()" class="btn btn-primary">
                 🔄 Refresh Page
@@ -300,8 +348,8 @@
         </div>
         
         <div class="filter-group" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
-            <label for="reportDays">Generate **CSV Report** (Working Days):</label>
-            <input type="number" id="reportDays" value="10" min="1" style="padding: 8px; border-radius: 6px; border: 1px solid #cbd5e0; width: 80px;">
+            <label for="reportDays">Generate CSV Report (Working Days):</label>
+            <input type="number" id="reportDays" value="10" min="1" style="width: 80px;">
             
             <button onclick="generateReport()" class="btn btn-primary" id="reportBtn" style="background: #e53e3e;">
                 ⬇️ Download Report
@@ -319,24 +367,57 @@
 
   <script>
     let currentResults = null;
-    const todayThreshold = <%= threshold %>;
-    const nextDayThreshold = 70; // Hardcoded 70% for next day empty
+    const threshold = <%= threshold %>;
+
+    // Initialize date picker to today
+    function initializeDatePicker() {
+        const today = new Date();
+        document.getElementById('targetDate').valueAsDate = today;
+    }
+
+    function setDateToToday() {
+        const today = new Date();
+        document.getElementById('targetDate').valueAsDate = today;
+    }
+
+    function setDateToYesterday() {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        document.getElementById('targetDate').valueAsDate = yesterday;
+    }
+
+    function setDateToLastWorkingDay() {
+        const date = new Date();
+        date.setDate(date.getDate() - 1); // Start with yesterday
+        
+        // Go back until we find a weekday
+        while (date.getDay() === 0 || date.getDay() === 6) {
+            date.setDate(date.getDate() - 1);
+        }
+        
+        document.getElementById('targetDate').valueAsDate = date;
+    }
 
     async function checkCalendars() {
       const btn = document.getElementById('checkBtn');
       const results = document.getElementById('results');
       const resultsContent = document.getElementById('resultsContent');
+      const selectedDate = document.getElementById('targetDate').value;
+      
+      if (!selectedDate) {
+          alert('Please select a date to review.');
+          return;
+      }
       
       btn.disabled = true;
       btn.textContent = '⏳ Checking...';
       results.classList.add('show');
       resultsContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>Checking all calendars...</p></div>';
       
-      // Reset filters before fetching new data
       resetFilters(true); 
       
       try {
-        const response = await fetch('/api/check-calendars');
+        const response = await fetch(`/api/check-calendars?date=${selectedDate}`);
         const data = await response.json();
         
         if (response.ok) {
@@ -349,7 +430,7 @@
         resultsContent.innerHTML = `<div class="result-item warning"><h4>❌ Error</h4><p>${error.message}</p></div>`;
       } finally {
         btn.disabled = false;
-        btn.textContent = '🔍 Check All Calendars';
+        btn.textContent = '🔍 Check Calendars for Selected Date';
       }
     }
     
@@ -363,11 +444,7 @@
     
     function getMemberStatus(member) {
         if (member.error) return 'Error';
-        
-        const isTodayBelow = member.emptyPercentage > todayThreshold;
-        const isNextDayBelow = member.nextDayEmptyPercentage > nextDayThreshold;
-        
-        return (isTodayBelow || isNextDayBelow) ? 'Attention' : 'OK';
+        return member.needsAttention ? 'Attention' : 'OK';
     }
     
     function filterResults() {
@@ -398,8 +475,7 @@
       html += `
         <div class="result-item neutral">
           <h4>📈 Summary</h4>
-          <p><strong>Today's Date:</strong> ${summaryData.todayDate}</p>
-          <p><strong>Next Working Day:</strong> ${summaryData.nextDayDate}</p>
+          <p><strong>Reviewing Date:</strong> ${summaryData.targetDate}</p>
           <p>Checked: ${summaryData.checked.length} / ${summaryData.totalMembers}</p>
           <p>Average Utilization: ${summaryData.averageUtilization}%</p>
           <p>Members Needing Attention: ${summaryData.needsAttention.length}</p>
@@ -422,16 +498,12 @@
               return;
           }
 
-          const todayEmpty = member.emptyPercentage;
-          const nextDayEmpty = member.nextDayEmptyPercentage;
-
-          const isTodayBelow = todayEmpty > todayThreshold;
-          const isNextDayBelow = nextDayEmpty > nextDayThreshold;
-          const needsAttention = isTodayBelow || isNextDayBelow;
+          const emptyPercentage = member.emptyPercentage;
+          const needsAttention = member.needsAttention;
 
           let barColor = "usage-green";
-          if (todayEmpty > todayThreshold) barColor = "usage-orange";
-          if (todayEmpty > 50) barColor = "usage-red"; 
+          if (emptyPercentage > threshold) barColor = "usage-orange";
+          if (emptyPercentage > 50) barColor = "usage-red"; 
 
           let itemClass = needsAttention ? 'warning' : 'success';
 
@@ -444,24 +516,22 @@
 
               <p><strong>Role:</strong> ${member.role} | <strong>Email:</strong> ${member.email}</p>
 
-              <p><strong>Utilization Today (${summaryData.todayDate}):</strong> ${member.utilization}%</p>
+              <p><strong>Utilization:</strong> ${member.utilization}%</p>
 
               <div class="usage-bar-container">
                 <div class="usage-bar ${barColor}" style="width:${member.utilization}%;"></div>
               </div>
               
               <p>
-                <strong>Empty Today:</strong> ${todayEmpty}% (Max ${todayThreshold}%) 
-                <br>
-                <strong>Empty Next Day (${summaryData.nextDayDate}):</strong> ${nextDayEmpty}% (Max ${nextDayThreshold}%)
+                <strong>Empty Time:</strong> ${emptyPercentage}% (Max ${threshold}%)
               </p>
               
-              <p><strong>Events Today:</strong> ${member.eventCount}</p>
+              <p><strong>Events:</strong> ${member.eventCount}</p>
 
               ${
                 needsAttention
-                  ? `<p style="color:#c05621;"><strong>⚠ Needs Attention:</strong> ${isTodayBelow ? `Today (${todayEmpty}%)` : ''}${isTodayBelow && isNextDayBelow ? ' and ' : ''}${isNextDayBelow ? `Next Day (${nextDayEmpty}%)` : ''} empty thresholds exceeded.</p>`
-                  : `<p style="color:#38a169;"><strong>✓ OK:</strong> Calendar meets all criteria.</p>`
+                  ? `<p style="color:#c05621;"><strong>⚠ Needs Attention:</strong> Empty time (${emptyPercentage}%) exceeds threshold of ${threshold}%.</p>`
+                  : `<p style="color:#38a169;"><strong>✓ OK:</strong> Calendar meets compliance criteria.</p>`
               }
             </div>
           `;
@@ -475,7 +545,6 @@
          html = '<div class="result-item neutral"><h4>No members found for the current filters.</h4><p>Try adjusting your role or status filters.</p></div>';
       }
 
-      
       document.getElementById('resultsContent').innerHTML = html;
     }
 
@@ -493,7 +562,6 @@
         reportBtn.textContent = '⏳ Generating...';
         
         try {
-            // Use the browser's native fetch to initiate a download
             const response = await fetch(`/api/generate-report?days=${days}`);
             
             if (!response.ok) {
@@ -502,7 +570,6 @@
                 return;
             }
 
-            // Create a blob from the response and trigger download
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -520,6 +587,9 @@
             reportBtn.textContent = originalText;
         }
     }
+
+    // Initialize the date picker when page loads
+    window.addEventListener('DOMContentLoaded', initializeDatePicker);
     
   </script>
 </body>
