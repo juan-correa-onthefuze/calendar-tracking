@@ -156,7 +156,8 @@ async function checkAllCalendars(calendar, targetDate) {
       });
       
       events = response.data.items || [];
-      utilization = calculateUtilizationForDay(events);
+      const calculationResult = calculateUtilizationForDay(events);
+      utilization = calculationResult.utilization;
       eventCount = events.length;
 
     } catch (e) {
@@ -166,13 +167,16 @@ async function checkAllCalendars(calendar, targetDate) {
     
     const emptyPercentage = 100 - utilization;
     
+    // Get calculation details
+    const calculationResult = calculateUtilizationForDay(events);
+    
     // needsAttention is ONLY based on the selected day's empty percentage
     // NO next day checking - next day status does NOT affect this
     const needsAttention = emptyPercentage > threshold;
     
     const memberResult = {
       ...member,
-      utilization,
+      utilization: calculationResult.utilization,
       emptyPercentage,
       eventCount,
       events: events.map(e => ({
@@ -180,6 +184,8 @@ async function checkAllCalendars(calendar, targetDate) {
         start: e.start.dateTime || e.start.date,
         end: e.end.dateTime || e.end.date
       })),
+      oversizedBlocks: calculationResult.oversizedBlocks,
+      hasOversizedBlocks: calculationResult.hasOversizedBlocks,
       error,
       needsAttention, // Based ONLY on selected day
     };
@@ -197,10 +203,11 @@ async function checkAllCalendars(calendar, targetDate) {
   return results;
 }
 
-// Calculate utilization
+// Calculate utilization and detect oversized blocks
 function calculateUtilizationForDay(events) {
   const TOTAL_BLOCKS = 14; 
   const BLOCK_DURATION_MS = 30 * 60 * 1000;
+  const MAX_BLOCK_DURATION_MS = 60 * 60 * 1000; // 60 minutes max
 
   const workingEvents = events.filter(event => {
     if (!event.start || !event.start.dateTime) return false;
@@ -217,11 +224,24 @@ function calculateUtilizationForDay(events) {
   });
 
   let filledBlocks = 0;
-  const filledSlots = new Set(); 
+  const filledSlots = new Set();
+  const oversizedBlocks = []; // Track blocks longer than 60 minutes
   
   workingEvents.forEach(event => {
     const start = new Date(event.start.dateTime);
     const end = new Date(event.end.dateTime);
+    const durationMs = end.getTime() - start.getTime();
+    const durationMinutes = Math.round(durationMs / (60 * 1000));
+    
+    // Check if block is longer than 60 minutes
+    if (durationMs > MAX_BLOCK_DURATION_MS) {
+      oversizedBlocks.push({
+        summary: event.summary || 'Untitled Event',
+        start: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        end: end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        duration: durationMinutes
+      });
+    }
     
     let currentBlockTime = new Date(start.getTime());
     
@@ -229,8 +249,8 @@ function calculateUtilizationForDay(events) {
         const hour = currentBlockTime.getHours();
         const minute = currentBlockTime.getMinutes();
         
-        if (hour >= 9 && hour < 18 && (hour < 12 || hour >= 14)) {
-            
+// NEW WORKING RANGE: 7:00 AM → 6:00 PM
+    if (hour >= 7 && hour < 18 && (hour < 12 || hour >= 14)) {            
             const blockStartHour = hour;
             const blockStartMinute = Math.floor(minute / 30) * 30;
 
@@ -247,7 +267,13 @@ function calculateUtilizationForDay(events) {
   });
 
   const finalFilledBlocks = Math.min(filledBlocks, TOTAL_BLOCKS);
-  return parseFloat(((finalFilledBlocks / TOTAL_BLOCKS) * 100).toFixed(1));
+  const utilization = parseFloat(((finalFilledBlocks / TOTAL_BLOCKS) * 100).toFixed(1));
+  
+  return {
+    utilization,
+    oversizedBlocks,
+    hasOversizedBlocks: oversizedBlocks.length > 0
+  };
 }
 
 // REPORT GENERATION LOGIC
@@ -295,8 +321,8 @@ async function checkCalendarForDate(calendar, memberEmail, date) {
         });
 
         const events = response.data.items || [];
-        const utilization = calculateUtilizationForDay(events);
-        const emptyPercentage = 100 - utilization;
+        const calculationResult = calculateUtilizationForDay(events);
+        const emptyPercentage = 100 - calculationResult.utilization;
         
         return emptyPercentage > threshold ? 'Yes' : 'No';
 

@@ -296,6 +296,7 @@
         <strong>Monitoring:</strong> <%= teamCount %> members<br>
         <strong>Working Hours:</strong> 9 AM - 6 PM (excluding lunch 12-2 PM)<br>
         <strong>Focus:</strong> 30-minute blocks (excluding meetings)<br>
+        <strong>Block Duration Rule:</strong> 30-60 minutes per block (blocks >60 min will be flagged 🚫)<br>
         <strong>Threshold:</strong> Max <%= threshold %>% Empty
     </div>
     
@@ -500,18 +501,22 @@
 
           const emptyPercentage = member.emptyPercentage;
           const needsAttention = member.needsAttention;
+          const hasOversizedBlocks = member.hasOversizedBlocks;
 
           let barColor = "usage-green";
           if (emptyPercentage > threshold) barColor = "usage-orange";
           if (emptyPercentage > 50) barColor = "usage-red"; 
 
           let itemClass = needsAttention ? 'warning' : 'success';
+          // Also mark as warning if there are oversized blocks
+          if (hasOversizedBlocks) itemClass = 'warning';
 
           html += `
             <div class="result-item ${itemClass}">
               <h4>
                 ${member.name}
                 ${needsAttention ? '<span class="notification-icon">⚠️</span>' : ""}
+                ${hasOversizedBlocks ? '<span class="notification-icon" style="color:#e53e3e;">🚫</span>' : ""}
               </h4>
 
               <p><strong>Role:</strong> ${member.role} | <strong>Email:</strong> ${member.email}</p>
@@ -523,9 +528,8 @@
               </div>
               
               <p>
-                <strong>Empty Time:</strong> ${emptyPercentage.toFixed(1)}% (Max ${threshold.toFixed(1)}%)
+                <strong>Empty Time:</strong> ${emptyPercentage}% (Max ${threshold}%)
               </p>
-
               
               <p><strong>Events:</strong> ${member.eventCount}</p>
 
@@ -533,6 +537,20 @@
                 needsAttention
                   ? `<p style="color:#c05621;"><strong>⚠ Needs Attention:</strong> Empty time (${emptyPercentage}%) exceeds threshold of ${threshold}%.</p>`
                   : `<p style="color:#38a169;"><strong>✓ OK:</strong> Calendar meets compliance criteria.</p>`
+              }
+              
+              ${
+                hasOversizedBlocks
+                  ? `<div style="background:#fee; border-left:4px solid #e53e3e; padding:12px; margin-top:8px; border-radius:4px;">
+                      <p style="color:#c53030; font-weight:600; margin-bottom:8px;">🚫 OVERSIZED BLOCKS DETECTED (>60 min):</p>
+                      <p style="color:#742a2a; font-size:13px; margin-bottom:6px;"><strong>Rule:</strong> Blocks should be 30-60 minutes maximum</p>
+                      ${member.oversizedBlocks.map(block => 
+                        `<p style="color:#742a2a; font-size:13px; margin:4px 0;">
+                          • <strong>${block.summary}</strong> (${block.start} - ${block.end}) - <span style="font-weight:700;">${block.duration} min</span>
+                        </p>`
+                      ).join('')}
+                    </div>`
+                  : ""
               }
             </div>
           `;
